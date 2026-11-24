@@ -1,0 +1,37 @@
+{
+  "upstream": {
+    "project": "frida/frida",
+    "version": "17.24.3",
+    "releaseUrl": "https://github.com/frida/frida/releases/tag/17.24.3",
+    "assets": {
+      "arm64": {
+        "name": "frida_17.24.3_iphoneos-arm64.deb",
+        "url": "https://github.com/frida/frida/releases/download/17.24.3/frida_17.24.3_iphoneos-arm64.deb",
+        "size": 23504004,
+        "sha256": "233a0133b027f41a24c7dddfa6e88bc49cf1f14a5066bc32c2523953f59d9e6d"
+      }
+    }
+  },
+  "variants": [
+    {
+      "id": "roothide-arm64e",
+      "architecture": "iphoneos-arm64e",
+      "sourceArch": "arm64",
+      "transform": "roothide-full",
+      "versionSuffix": "+roothide1",
+      "preDepends": "rootless-compat (>= 0.9)",
+      "outputName": "re.frida.server_{version}_iphoneos-arm64e.deb",
+      "notes": "Paths flattened from /var/jb, architecture rewritten to iphoneos-arm64e, and a postinst added that applies roothide entitlements, re-signs with ldid, recreates the AutoPatches symlinks, and restarts the launchd job. Verified on device: sandboxed app spawn+hook works."
+    },
+    {
+      "id": "rootless-arm64",
+      "architecture": "iphoneos-arm64",
+      "sourceArch": "arm64",
+      "transform": "none",
+      "versionSuffix": "",
+      "preDepends": null,
+      "outputName": "re.frida.server_{version}_iphoneos-arm64.deb",
+      "notes": "Upstream package published unchanged; verifies that the pipeline is byte-exact."
+    }
+  ]
+}

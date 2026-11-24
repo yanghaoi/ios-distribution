@@ -1,0 +1,31 @@
+{
+  "owner": "yanghaoi",
+  "repository": "ios-distribution",
+  "branch": "main",
+  "siteName": "yanghaoi iOS Repository",
+  "siteSubtitle": "Jailbreak packages and TrollStore apps, built from pinned upstream assets",
+  "baseUrl": "https://yanghaoi.github.io/ios-distribution/",
+  "apt": {
+    "distribution": "stable",
+    "component": "main",
+    "origin": "yanghaoi iOS Repository",
+    "label": "yanghaoi iOS Repository",
+    "description": "iOS packages mirrored and adapted from pinned upstream releases"
+  },
+  "channels": {
+    "apt": true,
+    "trollstore": false,
+    "enterpriseOta": false
+  },
+  "ota": {
+    "enabled": false,
+    "ipaBaseUrl": "",
+    "manifestBaseUrl": "",
+    "accessControlVerified": false,
+    "appleDistributionEligibilityVerified": false
+  },
+  "publish": {
+    "requireGpgSignature": true,
+    "maxPagesBytes": 1073741824
+  }
+}

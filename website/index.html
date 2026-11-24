@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__SITE_NAME__</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="site-header">
+  <h1>__SITE_NAME__</h1>
+  <p class="subtitle">__SITE_SUBTITLE__</p>
+</header>
+
+<main>
+  <section class="card" id="apt-source">
+    <h2>APT 软件源</h2>
+    <p class="hint">在 Sileo / Zebra 中添加以下软件源，用于安装越狱插件。</p>
+    <div class="field">
+      <code id="apt-url">__APT_BASE_URL__</code>
+      <button type="button" data-copy="#apt-url">复制</button>
+    </div>
+    <div class="field">
+      <span class="label">公钥</span>
+      <a id="apt-key" href="__APT_PUBLIC_KEY_PATH__">public.gpg</a>
+    </div>
+    <p class="hint">Distribution <code>__APT_DIST__</code> · Component <code>__APT_COMP__</code> · Architectures <code>__APT_ARCHS__</code></p>
+  </section>
+
+  <section class="card">
+    <h2>软件包</h2>
+    <div class="table-wrap">
+      <table id="packages">
+        <thead>
+          <tr><th>包名</th><th>版本</th><th>架构</th><th>大小</th><th>SHA256</th><th>下载</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>说明</h2>
+    <ul class="notes">
+      <li>包体由上游 GitHub Release 的固定版本构建，构建时校验上游 SHA256，上游改动会导致构建失败而不是静默漂移。</li>
+      <li>apt/ 目录内的索引与包体随每次构建重新生成，请以本页列出的 SHA256 为准。</li>
+      <li>安装需要设备已越狱并具备对应包管理器。</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <span>__FOOTER__</span>
+</footer>
+
+<script src="js/app.js"></script>
+</body>
+</html>

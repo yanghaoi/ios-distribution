@@ -1,0 +1,11 @@
+.cache/
+dist/
+artifacts/
+__pycache__/
+*.pyc
+
+.env
+secrets/
+*.p12
+*.mobileprovision
+*.pem

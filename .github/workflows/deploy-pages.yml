@@ -1,0 +1,95 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "catalog/**"
+      - "config/**"
+      - "website/**"
+      - "scripts/**"
+      - "schemas/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build deb variants from pinned upstream
+        env:
+          UPSTREAM_CACHE: ${{ github.workspace }}/.cache/upstream
+        run: |
+          python scripts/deb_builder.py . "$UPSTREAM_CACHE" artifacts/debs
+
+      - name: Verify upstream pin has not drifted
+        run: |
+          python - <<'PY'
+          import json, hashlib, os, sys
+          cfg = json.load(open("config/frida.json"))
+          for arch, meta in cfg["upstream"]["assets"].items():
+              path = os.path.join(".cache", "upstream", meta["name"])
+              if not os.path.exists(path):
+                  print("missing cached upstream asset:", path)
+                  sys.exit(1)
+              h = hashlib.sha256(open(path, "rb").read()).hexdigest()
+              if h != meta["sha256"]:
+                  print("upstream drift detected for", meta["name"])
+                  print(" expected", meta["sha256"])
+                  print(" actual  ", h)
+                  sys.exit(1)
+          print("upstream pins verified")
+          PY
+
+      - name: Build Pages site
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "APT_GPG_PRIVATE_KEY secret is not configured."
+            echo "Production Pages workflow must not publish an unsigned APT repository."
+            exit 1
+          fi
+          python scripts/build.py dist
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: dist/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
