@@ -293,7 +293,8 @@ ios-distribution/
 │   ├── catalog.py         catalog.json 生成
 │   └── build.py           编排入口
 ├── tools/
-│   └── frida_ctl.py       服务端版本与启动参数管理
+│   ├── frida_ctl.py       服务端版本与启动参数管理
+│   └── check_agent_layout.py 检查包内 agent 路径与协议标记（升级上游前必跑）
 ├── tests/                 34 项单元测试
 ├── website/               门户页面模板
 ├── entitlements/          roothide entitlements 参考（不参与构建）

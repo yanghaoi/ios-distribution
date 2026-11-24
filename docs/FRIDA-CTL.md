@@ -65,6 +65,101 @@ python tools/frida_ctl.py --host 172.16.1.8 --port 2222 --password xxx list
 
 新增服务时改 `KNOWN_SERVICES` 字典。
 
+## 两个版本共存：为什么不冲突
+
+设备上同时装着 frida 17.24.3 和 16.5.7-stealth。实测确认完全隔离，没有争用。
+
+### 文件层面零重叠
+
+```
+/usr/sbin/frida-server                        ← re.frida.server   (17.24.3)
+/usr/sbin/frida-server-stealth                ← re.frida.stealth  (16.5.7)
+/usr/lib/frida-1.0/frida-agent.dylib          ← re.frida.server
+/usr/lib/frida/frida-agent.dylib              ← re.frida.stealth
+/Library/LaunchDaemons/re.frida.server.plist
+/Library/LaunchDaemons/re.frida.stealth.plist
+```
+
+`dpkg -L` 逐条比对无交集；`grep -l "/usr/sbin/frida\|/usr/lib/frida" /var/lib/dpkg/info/*.list` 只匹配到这两个包，没有第三方包占用同一路径。
+
+### 进程与端口独立
+
+```
+launchctl:  505  0  re.frida.server
+            507  0  re.frida.stealth
+
+launchctl print 显示两者 program 分别为
+  .../.jbroot-.../usr/sbin/frida-server
+  .../.jbroot-.../usr/sbin/frida-server-stealth
+
+netstat:  127.0.0.1.27042  LISTEN
+          127.0.0.1.27043  LISTEN
+```
+
+### 协议层面互不识别
+
+这就是隔离生效的直接证据——交叉连接全部被拒：
+
+| 客户端 | → 27042 (17.24.3) | → 27043 (16.5.7-stealth) |
+|---|---|---|
+| 17.24.3 原版 | 成功，337 进程 | `ProtocolError` |
+| 16.5.7-stealth | `ProtocolError` | 成功，336 进程 |
+
+原因是 17.x 的 D-Bus 接口名是 `re.frida.*`，stealth 版被替换成 `re.frnda.*`，两边握手阶段就谈不拢。
+
+### 一个依赖上游命名的隐患
+
+两份 agent 路径能天然错开，靠的是 frida 官方在两个大版本间改了 agent 目录名：
+
+```
+/usr/lib/frida-1.0/frida-agent.dylib   61,823,376  (17.x)
+/usr/lib/frida/frida-agent.dylib       40,291,296  (16.x)
+```
+
+而且这个路径是**编译进 frida-server 二进制里的**，不能靠配置改。我们只是让包跟随各自版本的原生布局：
+
+- 17.24.3 的 `frida-server` 写死 `/usr/lib/frida-1.0/frida-agent.dylib`
+- 16.5.7 的 `frida-server` 写死 `/usr/lib/frida/frida-agent.dylib`
+
+**这不是我们设计的隔离机制，是上游命名差异带来的巧合。** 如果将来某个 frida 版本把 agent 目录改回与另一版本相同的名字，两个包就会开始互相覆盖 `frida-agent.dylib`。
+
+升级上游版本时必须先确认新版本用的 agent 路径。这个路径在二进制里是**分段存储**的（`frida-1.0` 与 `frida-agent.dylib` 是两个相邻但独立的字符串），所以拼完整路径去 grep 找不到。用 `tools/check_agent_layout.py`：
+
+```bash
+python tools/check_agent_layout.py artifacts/debs/<包名>.deb
+```
+
+实测输出：
+
+```
+=== re.frida.server_17.24.3+roothide1_iphoneos-arm64e.deb
+   ./usr/lib/frida-1.0/frida-agent.dylib 61857712
+      re.frida.            40
+   ./usr/sbin/frida-server 18395680
+      frida-1.0            2
+      frida-agent.dylib    2
+      re.frida.            58
+
+=== re.frida.stealth_16.5.7+stealth1_iphoneos-arm64e.deb
+   ./usr/lib/frida/frida-agent.dylib 40325648
+      re.frnda.            40
+   ./usr/sbin/frida-server-stealth 15028160
+      /usr/lib/frida       2
+      frida-agent.dylib    2
+      re.frnda.            52
+```
+
+判读：
+
+- `frida-1.0` 有值 → 该版本用 `/usr/lib/frida-1.0/`
+- `/usr/lib/frida` 有值 → 该版本用 `/usr/lib/frida/`
+- 两个都是 0 → 路径格式变了，需要重新确认
+- `re.frida.` / `re.frnda.` 的值用于确认 stealth 补丁是否已应用
+
+注意设备自带的 `strings` 是精简版，`strings x | grep "frida-agent.dylib"` 返回 0 并不代表路径不存在，不要用它判断。
+
+若路径与已装版本撞车，需要改成独立包名 + 独立 agent 目录，并验证 `frida-server` 能否接受路径不匹配（大概率不能，需像 stealth 变体那样做二进制层面的处理）。
+
 ## 实际验证过的场景
 
 **改参数并生效**（2026-11-24，iPhone XR / iOS 16.7.11 / Dopamine roothide）：
