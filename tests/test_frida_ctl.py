@@ -93,9 +93,23 @@ class ArgParsingTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             frida_ctl.main(["set", "frida-stealth"])
 
+    def test_add_requires_flags(self):
+        with self.assertRaises(SystemExit):
+            frida_ctl.main(["add", "frida-stealth"])
+
     def test_unknown_service_rejected(self):
         with self.assertRaises(SystemExit):
             frida_ctl.main(["show", "not-a-service"])
+
+    def test_flag_validation_happens_before_ssh(self):
+        import inspect
+
+        src = inspect.getsource(frida_ctl.main)
+        self.assertLess(
+            src.index("requires at least one flag"),
+            src.index("ssh_connect"),
+            "flags must be validated before opening an SSH connection",
+        )
 
 
 if __name__ == "__main__":

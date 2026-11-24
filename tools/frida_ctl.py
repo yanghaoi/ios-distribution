@@ -28,7 +28,12 @@ KNOWN_SERVICES = {
 
 
 def ssh_connect(host, port, user, password):
-    import paramiko
+    try:
+        import paramiko
+    except ImportError:
+        raise SystemExit(
+            "frida-ctl needs paramiko to talk to the device: pip install paramiko"
+        )
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -235,6 +240,11 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
 
+    if args.command in ("set", "add"):
+        flags = [f for f in args.flags if f != "--"]
+        if not flags:
+            parser.error("%s requires at least one flag" % args.command)
+
     client = ssh_connect(args.host, args.port, args.user, args.password)
     try:
         if args.command == "list":
@@ -246,10 +256,8 @@ def main(argv=None):
         elif args.command == "show":
             cmd_show(client, args.service, args.password)
         elif args.command == "set":
-            flags = [f for f in args.flags if f != "--"]
             cmd_set(client, args.service, flags, args.password)
         elif args.command == "add":
-            flags = [f for f in args.flags if f != "--"]
             cmd_add(client, args.service, flags, args.password)
     finally:
         client.close()
