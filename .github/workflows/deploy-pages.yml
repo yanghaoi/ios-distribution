@@ -52,17 +52,27 @@ jobs:
           python - <<'PY'
           import json, hashlib, os, sys
           cfg = json.load(open("config/frida.json"))
-          for arch, meta in cfg["upstream"]["assets"].items():
-              path = os.path.join(".cache", "upstream", meta["name"])
-              if not os.path.exists(path):
-                  print("missing cached upstream asset:", path)
-                  sys.exit(1)
-              h = hashlib.sha256(open(path, "rb").read()).hexdigest()
-              if h != meta["sha256"]:
-                  print("upstream drift detected for", meta["name"])
-                  print(" expected", meta["sha256"])
-                  print(" actual  ", h)
-                  sys.exit(1)
+          groups = cfg.get("versions")
+          if groups is None:
+              groups = [cfg]
+          failures = []
+          for entry in groups:
+              for arch, meta in entry["upstream"]["assets"].items():
+                  path = os.path.join(".cache", "upstream", meta["name"])
+                  if not os.path.exists(path):
+                      failures.append("missing cached asset: %s" % path)
+                      continue
+                  h = hashlib.sha256(open(path, "rb").read()).hexdigest()
+                  if h != meta["sha256"]:
+                      failures.append(
+                          "drift for %s\n  expected %s\n  actual   %s"
+                          % (meta["name"], meta["sha256"], h)
+                      )
+                  else:
+                      print("ok", meta["name"])
+          if failures:
+              print("\n".join(failures))
+              sys.exit(1)
           print("upstream pins verified")
           PY
 
