@@ -183,10 +183,12 @@ set -u
 
 ENT=/var/mobile/Library/roothide-frida.entitlements
 PATCHES=/usr/lib/DynamicPatches/AutoPatches.dylib
-SERVER=%(server)s
 AGENT=%(agent)s
-PLIST=%(plist)s
-LABEL=%(label)s
+CONFIG_DIR=/var/mobile/Library/frida-config
+ARGS_FILE=%(args_file)s
+PLIST_PATH=%(plist)s
+LABEL_NAME=%(label)s
+SERVER_BIN=%(server)s
 
 LDID=""
 for c in /usr/bin/ldid /var/jb/usr/bin/ldid; do
@@ -200,36 +202,74 @@ else
 %(entitlements)s
 ENTEOF
   chmod 644 "$ENT"
-  if [ -f "$SERVER" ]; then "$LDID" -M -S"$ENT" "$SERVER" || echo "roothide-frida: server resign failed" >&2; fi
+  if [ -f "$SERVER_BIN" ]; then "$LDID" -M -S"$ENT" "$SERVER_BIN" || echo "roothide-frida: server resign failed" >&2; fi
   if [ -f "$AGENT" ]; then "$LDID" -S "$AGENT" || echo "roothide-frida: agent resign failed" >&2; fi
 fi
 
 if [ -f "$PATCHES" ]; then
-  ln -sf "$PATCHES" "$SERVER.roothidepatch" 2>/dev/null || true
+  ln -sf "$PATCHES" "$SERVER_BIN.roothidepatch" 2>/dev/null || true
   ln -sf "$PATCHES" "$AGENT.roothidepatch" 2>/dev/null || true
 fi
 
-cat > "$PLIST" <<'PLISTEOF'
-%(plist_body)s
-PLISTEOF
-chmod 644 "$PLIST"
+mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR" 2>/dev/null || true
+if [ ! -f "$ARGS_FILE" ]; then
+  : > "$ARGS_FILE"
+  chmod 600 "$ARGS_FILE"
+fi
 
-launchctl unload "$PLIST" >/dev/null 2>&1 || true
-sleep 1
-launchctl load "$PLIST" >/dev/null 2>&1 || true
+build_plist() {
+  {
+    echo '<?xml version="1.0" encoding="UTF-8"?>'
+    echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+    echo '<plist version="1.0">'
+    echo '<dict>'
+    echo '	<key>Label</key>'
+    echo "	<string>$LABEL_NAME</string>"
+    echo '	<key>ProgramArguments</key>'
+    echo '	<array>'
+    echo "		<string>$SERVER_BIN</string>"
+    while IFS= read -r line; do
+      case "$line" in
+        ''|'#'*) continue ;;
+      esac
+      esc=$(printf '%%s' "$line" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+      echo "		<string>$esc</string>"
+    done < "$ARGS_FILE"
+    echo '	</array>'
+    echo '	<key>UserName</key>'
+    echo '	<string>root</string>'
+    echo '	<key>POSIXSpawnType</key>'
+    echo '	<string>Interactive</string>'
+    echo '	<key>RunAtLoad</key>'
+    echo '	<true/>'
+    echo '	<key>KeepAlive</key>'
+    echo '	<true/>'
+    echo '	<key>ThrottleInterval</key>'
+    echo '	<integer>5</integer>'
+    echo '	<key>ExecuteAllowed</key>'
+    echo '	<true/>'
+    echo '</dict>'
+    echo '</plist>'
+  } > "$PLIST_PATH"
+  chmod 644 "$PLIST_PATH"
+}
 
-# roothide patches launchd plists during dpkg, rewriting Program paths to a
-# jbroot container that launchd cannot resolve. Re-apply the plist and reload
-# once the installer has finished.
+reload() {
+  launchctl unload "$PLIST_PATH" >/dev/null 2>&1 || true
+  sleep 1
+  launchctl load "$PLIST_PATH" >/dev/null 2>&1 || true
+}
+
+build_plist
+reload
+
+# roothide rewrites launchd plists during dpkg, pointing Program at a jbroot
+# container. Redo it once the installer has finished.
 (
   sleep 5
-  cat > "$PLIST" <<'PLISTEOF'
-%(plist_body)s
-PLISTEOF
-  chmod 644 "$PLIST"
-  launchctl unload "$PLIST" >/dev/null 2>&1 || true
-  sleep 1
-  launchctl load "$PLIST" >/dev/null 2>&1 || true
+  build_plist
+  reload
 ) >/dev/null 2>&1 &
 
 exit 0
@@ -270,19 +310,24 @@ def make_postinst(server="/usr/sbin/frida-server",
                   agent="/usr/lib/frida-1.0/frida-agent.dylib",
                   plist="/Library/LaunchDaemons/re.frida.server.plist",
                   label="re.frida.server",
-                  plist_body=None):
-    if plist_body is None:
-        plist_body = render_launchd_plist(
-            label=label, program=server, port=27042
-        )
-    return ROOTHIDE_POSTINST_TEMPLATE % {
+                  args_file="/var/mobile/Library/frida-config/re.frida.server.args",
+                  default_args=None):
+    default_args = default_args or []
+    body = ROOTHIDE_POSTINST_TEMPLATE % {
         "server": server,
         "agent": agent,
         "plist": plist,
         "label": label,
+        "args_file": args_file,
         "entitlements": ROOTHIDE_ENTITLEMENTS,
-        "plist_body": plist_body.rstrip("\n"),
     }
+    if default_args:
+        seed = "\n".join(default_args)
+        body = body.replace(
+            '  : > "$ARGS_FILE"\n',
+            "  cat > \"$ARGS_FILE\" <<'ARGSEOF'\n%s\nARGSEOF\n" % seed,
+        )
+    return body
 
 
 ROOTHIDE_POSTINST = make_postinst()
@@ -580,6 +625,8 @@ def relocate_stealth_files(deb_bytes, server_path="/usr/sbin/frida-server-stealt
 def set_listen_port(deb_bytes, port, label="re.frida.stealth",
                     program="/usr/sbin/frida-server-stealth",
                     plist_name="re.frida.stealth.plist"):
+    """Ship a placeholder plist; the postinst regenerates it from the
+    device-local args file, so the port here only matters for first boot."""
     members = read_ar(deb_bytes)
     control_name, control_raw = read_control(members)
     data_name, data_raw = read_data(members)
@@ -686,11 +733,11 @@ def build_variants(repo_root, cache_dir, out_dir):
                         agent="/usr/lib/frida/frida-agent.dylib",
                         plist="/Library/LaunchDaemons/re.frida.stealth.plist",
                         label="re.frida.stealth",
-                        plist_body=render_launchd_plist(
-                            label="re.frida.stealth",
-                            program="/usr/sbin/frida-server-stealth",
-                            port=variant.get("listenPort", 27043),
-                        ),
+                        args_file="/var/mobile/Library/frida-config/re.frida.stealth.args",
+                        default_args=[
+                            "-l",
+                            "127.0.0.1:%d" % variant.get("listenPort", 27043),
+                        ],
                     ),
                 )
                 payload = relocate_stealth_files(payload)

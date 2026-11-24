@@ -30,9 +30,9 @@ class RoothidePostinstTests(unittest.TestCase):
         text = deb_builder.ROOTHIDE_POSTINST
         self.assertIn("/usr/bin/ldid", text)
         self.assertIn("/usr/lib/DynamicPatches/AutoPatches.dylib", text)
-        self.assertIn("$SERVER.roothidepatch", text)
+        self.assertIn("$SERVER_BIN.roothidepatch", text)
         self.assertIn("$AGENT.roothidepatch", text)
-        self.assertIn("SERVER=/usr/sbin/frida-server", text)
+        self.assertIn("SERVER_BIN=/usr/sbin/frida-server", text)
         self.assertIn("AGENT=/usr/lib/frida-1.0/frida-agent.dylib", text)
 
     def test_postinst_does_not_abort_without_ldid(self):

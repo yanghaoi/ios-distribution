@@ -241,6 +241,43 @@ gpg --batch --pinentry-mode loopback --passphrase '你的口令' \
 7. 打开 `https://yanghaoi.github.io/ios-distribution/` 验证门户
 8. 设备上添加 APT 源，确认 `re.frida.server` 可被索引、可下载
 
+## 启动参数与版本管理
+
+frida-server 的 `--listen`、`--token`、`--origin`、`--certificate` 等参数在官方 deb 里没有配置入口。本项目把参数放到设备本地文件，plist 由它生成：
+
+```
+/var/mobile/Library/frida-config/
+├── re.frida.server.args
+└── re.frida.stealth.args
+```
+
+每行一个参数：
+
+```
+--listen
+127.0.0.1:27043
+--token
+778899
+--origin
+https://admin.com
+```
+
+用 `tools/frida_ctl.py` 管理：
+
+```bash
+python tools/frida_ctl.py list                 # 已装服务、端口、参数
+python tools/frida_ctl.py doctor               # 设备概况 + 服务 + 监听端口
+python tools/frida_ctl.py set frida-stealth --listen 0.0.0.0:65530 --token 778899
+python tools/frida_ctl.py add frida-stealth --verbose
+python tools/frida_ctl.py ports
+```
+
+`set` 会重建 plist 并重启服务，不需要重装包。重装包也不会覆盖已配置的参数。
+
+详见 [docs/FRIDA-CTL.md](docs/FRIDA-CTL.md)，其中记录了 token 认证的三个坑（Python API 的 remote device 缓存、origin 与 token 的报错区别）。
+
+**token 不能写进 deb。** 包在 GitHub Pages 上公开可下载，写进去等于没有认证。包只带端口这类默认值，token 由操作者在设备上配置。
+
 ## 目录结构
 
 ```
@@ -248,20 +285,24 @@ ios-distribution/
 ├── .github/workflows/deploy-pages.yml
 ├── config/
 │   ├── site.json          站点与 APT 参数
-│   └── frida.json         上游版本锚点 + 变体定义
+│   └── frida.json         上游版本锚点 + 变体定义（多版本）
 ├── scripts/
-│   ├── deb_builder.py     下载校验、重打包
+│   ├── deb_builder.py     下载校验、重打包、stealth 补丁
 │   ├── apt_generator.py   Packages / Release 生成
 │   ├── gpg_signer.py      InRelease / Release.gpg 签名与自验证
 │   ├── catalog.py         catalog.json 生成
 │   └── build.py           编排入口
-├── tests/                 14 项单元测试
+├── tools/
+│   └── frida_ctl.py       服务端版本与启动参数管理
+├── tests/                 34 项单元测试
 ├── website/               门户页面模板
 ├── entitlements/          roothide entitlements 参考（不参与构建）
 └── docs/
     ├── PUBLISHING.md
     ├── TROUBLESHOOTING.md
-    └── SECURITY.md
+    ├── SECURITY.md
+    ├── FRIDA-CTL.md
+    └── VERIFICATION-20261124.md
 ```
 
 ### 与规格文档的偏离

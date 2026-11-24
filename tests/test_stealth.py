@@ -71,9 +71,9 @@ class PlistTests(unittest.TestCase):
 class PostinstTests(unittest.TestCase):
     def test_default_postinst_targets_server_paths(self):
         text = deb_builder.ROOTHIDE_POSTINST
-        self.assertIn("SERVER=/usr/sbin/frida-server", text)
+        self.assertIn("SERVER_BIN=/usr/sbin/frida-server", text)
         self.assertIn("AGENT=/usr/lib/frida-1.0/frida-agent.dylib", text)
-        self.assertIn("LABEL=re.frida.server", text)
+        self.assertIn("LABEL_NAME=re.frida.server", text)
 
     def test_custom_postinst_targets_stealth_paths(self):
         text = deb_builder.make_postinst(
@@ -81,21 +81,42 @@ class PostinstTests(unittest.TestCase):
             agent="/usr/lib/frida/frida-agent.dylib",
             plist="/Library/LaunchDaemons/re.frida.stealth.plist",
             label="re.frida.stealth",
+            args_file="/var/mobile/Library/frida-config/re.frida.stealth.args",
         )
-        self.assertIn("SERVER=/usr/sbin/frida-server-stealth", text)
+        self.assertIn("SERVER_BIN=/usr/sbin/frida-server-stealth", text)
         self.assertIn("AGENT=/usr/lib/frida/frida-agent.dylib", text)
-        self.assertIn("LABEL=re.frida.stealth", text)
-        self.assertIn("re.frida.stealth", text)
+        self.assertIn("LABEL_NAME=re.frida.stealth", text)
+        self.assertIn("re.frida.stealth.args", text)
         self.assertNotIn("frida-server-stealth-stealth", text)
 
-    def test_postinst_rewrites_plist_twice(self):
-        text = deb_builder.make_postinst(label="re.frida.stealth", server="/usr/sbin/frida-server-stealth")
-        self.assertEqual(text.count("PLISTEOF"), 4)
+    def test_postinst_rebuilds_plist_from_args_file(self):
+        text = deb_builder.make_postinst(label="re.frida.stealth",
+                                         server="/usr/sbin/frida-server-stealth")
+        self.assertIn("build_plist()", text)
+        self.assertIn('done < "$ARGS_FILE"', text)
+        self.assertEqual(text.count("build_plist"), 3)
+
+    def test_postinst_reloads_twice_for_roothide(self):
+        text = deb_builder.make_postinst(label="re.frida.stealth")
+        self.assertEqual(text.count("reload"), 3)
         self.assertIn("sleep 5", text)
 
     def test_postinst_does_not_double_suffix(self):
         text = deb_builder.make_postinst(server="/usr/sbin/frida-server-stealth")
         self.assertNotIn("-stealth-stealth", text)
+
+    def test_postinst_seeds_default_args(self):
+        text = deb_builder.make_postinst(
+            label="re.frida.stealth",
+            server="/usr/sbin/frida-server-stealth",
+            default_args=["-l", "127.0.0.1:27043"],
+        )
+        self.assertIn("ARGSEOF", text)
+        self.assertIn("127.0.0.1:27043", text)
+
+    def test_postinst_preserves_existing_args_file(self):
+        text = deb_builder.ROOTHIDE_POSTINST
+        self.assertIn('if [ ! -f "$ARGS_FILE" ]', text)
 
 
 if __name__ == "__main__":
