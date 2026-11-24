@@ -9,6 +9,14 @@ def load_site(repo_root):
 
 
 def build_catalog(pooled, site_cfg, upstream_cfg):
+    versions = upstream_cfg.get("versions") or [upstream_cfg]
+    release_urls = {}
+    for entry in versions:
+        up = entry["upstream"]
+        for variant in entry["variants"]:
+            v = up["version"] + variant["versionSuffix"]
+            release_urls[(entry.get("id", ""), v)] = up["releaseUrl"]
+
     packages = []
     for item in pooled:
         packages.append(
@@ -24,8 +32,14 @@ def build_catalog(pooled, site_cfg, upstream_cfg):
                 "size": item["size"],
                 "sha256": item["sha256"],
                 "filename": item["filename"],
-                "upstreamVersion": upstream_cfg["upstream"]["version"],
-                "upstreamUrl": upstream_cfg["upstream"]["releaseUrl"],
+                "upstreamVersions": sorted(
+                    {
+                        v.split("+")[0]
+                        for _k, v in release_urls.items()
+                        if v.startswith(item["version"].split("+")[0])
+                    }
+                )
+                or [item["version"].split("+")[0]],
             }
         )
     packages.sort(key=lambda p: (p["package"], p["architecture"], p["version"]))

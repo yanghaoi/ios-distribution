@@ -92,18 +92,23 @@ def build(repo_root, dist_dir, debs_dir, sign_key=None, sign_passphrase=None,
     os.makedirs(site_root, exist_ok=True)
 
     deb_specs = []
-    for variant in frida_cfg["variants"]:
-        version = frida_cfg["upstream"]["version"] + variant["versionSuffix"]
-        name = variant["outputName"].format(version=version)
-        path = os.path.join(debs_dir, name)
-        if not os.path.exists(path):
-            raise BuildError("missing built deb: %s" % path)
-        deb_specs.append(
-            {
-                "path": path,
-                "expectedArchitecture": variant["architecture"],
-            }
-        )
+    groups = frida_cfg.get("versions")
+    if groups is None:
+        groups = [frida_cfg]
+    for entry in groups:
+        upstream = entry["upstream"]
+        for variant in entry["variants"]:
+            version = upstream["version"] + variant["versionSuffix"]
+            name = variant["outputName"].format(version=version)
+            path = os.path.join(debs_dir, name)
+            if not os.path.exists(path):
+                raise BuildError("missing built deb: %s" % path)
+            deb_specs.append(
+                {
+                    "path": path,
+                    "expectedArchitecture": variant["architecture"],
+                }
+            )
 
     apt_dir = os.path.join(site_root, "apt")
     apt_meta = apt_generator.build_apt_tree(apt_dir, deb_specs, site_cfg)

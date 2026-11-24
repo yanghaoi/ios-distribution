@@ -178,14 +178,15 @@ ROOTHIDE_ENTITLEMENTS = """<?xml version="1.0" encoding="UTF-8"?>
 </plist>
 """
 
-ROOTHIDE_POSTINST = """#!/bin/bash
+ROOTHIDE_POSTINST_TEMPLATE = """#!/bin/bash
 set -u
 
 ENT=/var/mobile/Library/roothide-frida.entitlements
 PATCHES=/usr/lib/DynamicPatches/AutoPatches.dylib
-SERVER=/usr/sbin/frida-server
-AGENT=/usr/lib/frida-1.0/frida-agent.dylib
-PLIST=/Library/LaunchDaemons/re.frida.server.plist
+SERVER=%(server)s
+AGENT=%(agent)s
+PLIST=%(plist)s
+LABEL=%(label)s
 
 LDID=""
 for c in /usr/bin/ldid /var/jb/usr/bin/ldid; do
@@ -195,9 +196,9 @@ done
 if [ -z "$LDID" ]; then
   echo "roothide-frida: ldid not found, skipping entitlement patch" >&2
 else
-  cat > "$ENT" <<'PLIST'
-%s
-PLIST
+  cat > "$ENT" <<'ENTEOF'
+%(entitlements)s
+ENTEOF
   chmod 644 "$ENT"
   if [ -f "$SERVER" ]; then "$LDID" -M -S"$ENT" "$SERVER" || echo "roothide-frida: server resign failed" >&2; fi
   if [ -f "$AGENT" ]; then "$LDID" -S "$AGENT" || echo "roothide-frida: agent resign failed" >&2; fi
@@ -208,17 +209,87 @@ if [ -f "$PATCHES" ]; then
   ln -sf "$PATCHES" "$AGENT.roothidepatch" 2>/dev/null || true
 fi
 
-if [ -f "$PLIST" ]; then
+cat > "$PLIST" <<'PLISTEOF'
+%(plist_body)s
+PLISTEOF
+chmod 644 "$PLIST"
+
+launchctl unload "$PLIST" >/dev/null 2>&1 || true
+sleep 1
+launchctl load "$PLIST" >/dev/null 2>&1 || true
+
+# roothide patches launchd plists during dpkg, rewriting Program paths to a
+# jbroot container that launchd cannot resolve. Re-apply the plist and reload
+# once the installer has finished.
+(
+  sleep 5
+  cat > "$PLIST" <<'PLISTEOF'
+%(plist_body)s
+PLISTEOF
+  chmod 644 "$PLIST"
   launchctl unload "$PLIST" >/dev/null 2>&1 || true
   sleep 1
   launchctl load "$PLIST" >/dev/null 2>&1 || true
-fi
+) >/dev/null 2>&1 &
 
 exit 0
-""" % ROOTHIDE_ENTITLEMENTS
+"""
 
 
-def transform_control(raw, version, arch, pre_depends, inject_postinst=False):
+def render_launchd_plist(label, program, port):
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>%s</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>%s</string>
+		<string>-l</string>
+		<string>127.0.0.1:%d</string>
+	</array>
+	<key>UserName</key>
+	<string>root</string>
+	<key>POSIXSpawnType</key>
+	<string>Interactive</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>ExecuteAllowed</key>
+	<true/>
+</dict>
+</plist>
+""" % (label, program, port)
+
+
+def make_postinst(server="/usr/sbin/frida-server",
+                  agent="/usr/lib/frida-1.0/frida-agent.dylib",
+                  plist="/Library/LaunchDaemons/re.frida.server.plist",
+                  label="re.frida.server",
+                  plist_body=None):
+    if plist_body is None:
+        plist_body = render_launchd_plist(
+            label=label, program=server, port=27042
+        )
+    return ROOTHIDE_POSTINST_TEMPLATE % {
+        "server": server,
+        "agent": agent,
+        "plist": plist,
+        "label": label,
+        "entitlements": ROOTHIDE_ENTITLEMENTS,
+        "plist_body": plist_body.rstrip("\n"),
+    }
+
+
+ROOTHIDE_POSTINST = make_postinst()
+
+
+def transform_control(raw, version, arch, pre_depends, inject_postinst=False,
+                      postinst_body=None):
     control_body = None
     for member, body in iter_tar(raw):
         if member.name.lstrip("./") == "control":
@@ -256,7 +327,8 @@ def transform_control(raw, version, arch, pre_depends, inject_postinst=False):
             info.uname = "root"
             info.gname = "root"
             info.mtime = 0
-            entries.append((info, "./postinst", ROOTHIDE_POSTINST.encode("utf-8")))
+            body_bytes = (postinst_body or ROOTHIDE_POSTINST).encode("utf-8")
+            entries.append((info, "./postinst", body_bytes))
 
     return build_tar(entries)
 
@@ -276,16 +348,67 @@ def transform_data(raw, flatten):
     return build_tar(entries)
 
 
+STEALTH_PAIRS = [
+    (b"re.frida.BusSession", b"re.frnda.BusSession"),
+    (b"re.frida.AgentSession", b"re.frnda.AgentSession"),
+    (b"re.frida.HostSession", b"re.frnda.HostSession"),
+    (b"re.frida.AgentController", b"re.frnda.AgentController"),
+    (b"re.frida.AgentMessageSink", b"re.frnda.AgentMessageSink"),
+    (b"re.frida.AgentSessionProvider", b"re.frnda.AgentSessionProvider"),
+    (b"/re/frida/", b"/re/frnda/"),
+    (b"re.frida.", b"re.frnda."),
+    (b"frida:rpc", b"frnda:rpc"),
+]
+
+
+def apply_stealth_patch(data):
+    out = data
+    total = 0
+    for src, dst in STEALTH_PAIRS:
+        if len(src) != len(dst):
+            raise ValueError("stealth replacement length differs: %r" % src)
+        n = out.count(src)
+        if n:
+            out = out.replace(src, dst)
+            total += n
+    if len(out) != len(data):
+        raise ValueError("stealth patch changed binary size")
+    return out, total
+
+
+def transform_data_stealth(raw, flatten):
+    entries = []
+    for member, body in iter_tar(raw):
+        name = member.name
+        if flatten:
+            if name in ("./var", "./var/jb", "var", "var/jb"):
+                continue
+            if name.startswith(VAR_JB):
+                name = "./" + name[len(VAR_JB) :]
+            elif name.startswith(VAR_JB.lstrip("./")):
+                name = "./" + name[len(VAR_JB.lstrip("./")) :]
+        if body is not None and (
+            name.endswith("frida-server") or name.endswith("frida-agent.dylib")
+        ):
+            body, _n = apply_stealth_patch(body)
+        entries.append((member, name, body))
+    return build_tar(entries)
+
+
 def repack_deb(source_bytes, version, arch, pre_depends, flatten, inject_postinst=False,
-               compress_preset=6):
+               stealth=False, postinst_body=None, compress_preset=6):
     members = read_ar(source_bytes)
     control_name, control_raw = read_control(members)
     data_name, data_raw = read_data(members)
 
     new_control = transform_control(
-        control_raw, version, arch, pre_depends, inject_postinst=inject_postinst
+        control_raw, version, arch, pre_depends, inject_postinst=inject_postinst,
+        postinst_body=postinst_body,
     )
-    new_data = transform_data(data_raw, flatten)
+    if stealth:
+        new_data = transform_data_stealth(data_raw, flatten)
+    else:
+        new_data = transform_data(data_raw, flatten)
 
     out_members = [("debian-binary", b"2.0\n")]
     out_members.append((control_name, lzma.compress(new_control, preset=compress_preset)))
@@ -335,60 +458,275 @@ def load_config(repo_root):
         return json.loads(f.read().decode("utf-8"))
 
 
+def rename_package(deb_bytes, new_name):
+    members = read_ar(deb_bytes)
+    control_name, control_raw = read_control(members)
+    data_name, data_raw = read_data(members)
+
+    control_body = None
+    for member, body in iter_tar(control_raw):
+        if member.name.lstrip("./") == "control":
+            control_body = body
+    if control_body is None:
+        raise ValueError("control missing")
+
+    fields = parse_control_text(control_body)
+    fields = control_set(fields, "Package", new_name)
+    new_control = render_control(fields)
+
+    entries = []
+    for member, body in iter_tar(control_raw):
+        if member.name.lstrip("./") == "control":
+            body = new_control
+        entries.append((member, member.name, body))
+    new_control_raw = build_tar(entries)
+
+    out = [
+        ("debian-binary", b"2.0\n"),
+        (control_name, lzma.compress(new_control_raw, preset=6)),
+        (data_name, lzma.compress(data_raw, preset=6)),
+    ]
+    tmp = os.path.join(os.environ.get("TEMP", "/tmp"), "_rename_%s.deb" % os.getpid())
+    write_ar(tmp, out)
+    data = open(tmp, "rb").read()
+    os.remove(tmp)
+    return data
+
+
+def relocate_stealth_files(deb_bytes, server_path="/usr/sbin/frida-server-stealth",
+                           agent_path="/usr/lib/frida/frida-agent.dylib"):
+    """Move the server binary aside so it coexists with re.frida.server.
+
+    The agent must stay at /usr/lib/frida/frida-agent.dylib because the
+    frida-server binary has that path compiled in; it is shared with any
+    other 16.x server already installed.
+    """
+    members = read_ar(deb_bytes)
+    control_name, control_raw = read_control(members)
+    data_name, data_raw = read_data(members)
+
+    server_rel = "./" + server_path.lstrip("/")
+    agent_rel = "./" + agent_path.lstrip("/")
+
+    src_server = None
+    src_agent = None
+    for member, body in iter_tar(data_raw):
+        if body is None:
+            continue
+        if member.name.endswith("usr/sbin/frida-server"):
+            src_server = member.name
+        elif member.name.endswith("frida-agent.dylib"):
+            src_agent = member.name
+    if not src_server or not src_agent:
+        raise ValueError("cannot locate frida-server or frida-agent in package")
+
+    entries = []
+    for member, body in iter_tar(data_raw):
+        name = member.name
+        if body is None:
+            continue
+        if name == src_server:
+            entries.append((member, server_rel, body))
+            continue
+        if name == src_agent:
+            entries.append((member, agent_rel, body))
+            continue
+        if name.endswith(".plist") and "LaunchDaemons" in name:
+            entries.append((member, "./Library/LaunchDaemons/re.frida.stealth.plist", body))
+            continue
+
+    needed_dirs = [
+        "./usr", "./usr/sbin", "./usr/lib", "./usr/lib/frida",
+        "./Library", "./Library/LaunchDaemons",
+    ]
+    import tarfile as _tf
+
+    dir_entries = []
+    for d in needed_dirs:
+        info = _tf.TarInfo(d)
+        info.type = _tf.DIRTYPE
+        info.mode = 0o755
+        info.uid = 0
+        info.gid = 0
+        info.uname = "root"
+        info.gname = "root"
+        info.mtime = 0
+        dir_entries.append((info, d, None))
+
+    patched_data = build_tar(dir_entries + entries)
+
+    control_entries = []
+    for member, body in iter_tar(control_raw):
+        if body is not None and member.name.lstrip("./") in ("extrainst_", "postinst", "prerm"):
+            text = body.decode("utf-8")
+            text = text.replace("/usr/lib/frida-1.0/frida-agent.dylib",
+                                "/usr/lib/frida/frida-agent.dylib")
+            body = text.encode("utf-8")
+        control_entries.append((member, member.name, body))
+    patched_control = build_tar(control_entries)
+
+    out = [
+        ("debian-binary", b"2.0\n"),
+        (control_name, lzma.compress(patched_control, preset=6)),
+        (data_name, lzma.compress(patched_data, preset=6)),
+    ]
+    tmp = os.path.join(os.environ.get("TEMP", "/tmp"), "_relocate_%s.deb" % os.getpid())
+    write_ar(tmp, out)
+    data = open(tmp, "rb").read()
+    os.remove(tmp)
+    return data
+
+
+def set_listen_port(deb_bytes, port, label="re.frida.stealth",
+                    program="/usr/sbin/frida-server-stealth",
+                    plist_name="re.frida.stealth.plist"):
+    members = read_ar(deb_bytes)
+    control_name, control_raw = read_control(members)
+    data_name, data_raw = read_data(members)
+
+    new_plist = render_launchd_plist(label, program, port).encode("utf-8")
+
+    data_entries = []
+    replaced = 0
+    for member, body in iter_tar(data_raw):
+        name = member.name
+        if body is not None and name.endswith(".plist") and "LaunchDaemons" in name:
+            data_entries.append((member, "./Library/LaunchDaemons/%s" % plist_name, new_plist))
+            replaced += 1
+            continue
+        entry_name = name.replace("re.frida.server.plist", plist_name)
+        data_entries.append((member, entry_name, body))
+    if replaced == 0:
+        raise ValueError("no launchd plist found in package")
+    patched_data = build_tar(data_entries)
+
+    control_entries = []
+    for member, body in iter_tar(control_raw):
+        if body is not None and member.name.lstrip("./") in ("extrainst_", "postinst", "prerm"):
+            text = body.decode("utf-8")
+            text = text.replace("/var/jb/Library/LaunchDaemons/re.frida.server.plist",
+                                "/Library/LaunchDaemons/%s" % plist_name)
+            text = text.replace("re.frida.server.plist", plist_name)
+            body = text.encode("utf-8")
+        control_entries.append((member, member.name, body))
+    patched_control = build_tar(control_entries)
+
+    out = [
+        ("debian-binary", b"2.0\n"),
+        (control_name, lzma.compress(patched_control, preset=6)),
+        (data_name, lzma.compress(patched_data, preset=6)),
+    ]
+    tmp = os.path.join(os.environ.get("TEMP", "/tmp"), "_port_%s.deb" % os.getpid())
+    write_ar(tmp, out)
+    data = open(tmp, "rb").read()
+    os.remove(tmp)
+    return data
+
+
 def build_variants(repo_root, cache_dir, out_dir):
     cfg = load_config(repo_root)
-    version = cfg["upstream"]["version"]
-    assets = cfg["upstream"]["assets"]
 
-    sources = {}
-    for arch, meta in assets.items():
-        sources[arch] = fetch(
-            meta["url"],
-            expected_size=meta.get("size"),
-            expected_sha256=meta["sha256"],
-            cache_dir=cache_dir,
-        )
+    groups = []
+    if "versions" in cfg:
+        for entry in cfg["versions"]:
+            groups.append((entry["id"], entry["upstream"], entry["variants"]))
+    else:
+        groups.append(("default", cfg["upstream"], cfg["variants"]))
 
     os.makedirs(out_dir, exist_ok=True)
     built = []
-    for variant in cfg["variants"]:
-        src = sources[variant["sourceArch"]]
-        transform = variant["transform"]
-        effective_version = version + variant["versionSuffix"]
-        if transform == "none":
-            payload = src
-        elif transform == "roothide":
-            payload = repack_deb(
-                src,
-                version=effective_version,
-                arch=variant["architecture"],
-                pre_depends=variant["preDepends"],
-                flatten=True,
-                inject_postinst=variant.get("injectRoothidePostinst", False),
-            )
-        elif transform == "roothide-full":
-            payload = repack_deb(
-                src,
-                version=effective_version,
-                arch=variant["architecture"],
-                pre_depends=variant["preDepends"],
-                flatten=True,
-                inject_postinst=True,
-            )
-        else:
-            raise ValueError("unknown transform: %s" % transform)
+    for group_id, upstream, variants in groups:
+        version = upstream["version"]
+        assets = upstream["assets"]
 
-        name = variant["outputName"].format(version=effective_version)
-        path = os.path.join(out_dir, name)
-        with open(path, "wb") as f:
-            f.write(payload)
+        sources = {}
+        for arch, meta in assets.items():
+            sources[arch] = fetch(
+                meta["url"],
+                expected_size=meta.get("size"),
+                expected_sha256=meta["sha256"],
+                cache_dir=cache_dir,
+            )
 
-        built.append(
-            {
-                "variantId": variant["id"],
-                "name": name,
-                "path": path,
-                "size": len(payload),
+        for variant in variants:
+            src = sources[variant["sourceArch"]]
+            transform = variant["transform"]
+            effective_version = version + variant["versionSuffix"]
+            if transform == "none":
+                payload = src
+            elif transform == "roothide":
+                payload = repack_deb(
+                    src,
+                    version=effective_version,
+                    arch=variant["architecture"],
+                    pre_depends=variant["preDepends"],
+                    flatten=True,
+                    inject_postinst=variant.get("injectRoothidePostinst", False),
+                )
+            elif transform == "roothide-full":
+                payload = repack_deb(
+                    src,
+                    version=effective_version,
+                    arch=variant["architecture"],
+                    pre_depends=variant["preDepends"],
+                    flatten=True,
+                    inject_postinst=True,
+                )
+            elif transform == "roothide-stealth":
+                payload = repack_deb(
+                    src,
+                    version=effective_version,
+                    arch=variant["architecture"],
+                    pre_depends=variant["preDepends"],
+                    flatten=True,
+                    inject_postinst=True,
+                    stealth=True,
+                    postinst_body=make_postinst(
+                        server="/usr/sbin/frida-server-stealth",
+                        agent="/usr/lib/frida/frida-agent.dylib",
+                        plist="/Library/LaunchDaemons/re.frida.stealth.plist",
+                        label="re.frida.stealth",
+                        plist_body=render_launchd_plist(
+                            label="re.frida.stealth",
+                            program="/usr/sbin/frida-server-stealth",
+                            port=variant.get("listenPort", 27043),
+                        ),
+                    ),
+                )
+                payload = relocate_stealth_files(payload)
+                if variant.get("packageName"):
+                    payload = rename_package(payload, variant["packageName"])
+                if variant.get("listenPort"):
+                    payload = set_listen_port(payload, variant["listenPort"])
+            elif transform == "stealth-plain":
+                payload = repack_deb(
+                    src,
+                    version=effective_version,
+                    arch=variant["architecture"],
+                    pre_depends=variant["preDepends"],
+                    flatten=False,
+                    inject_postinst=False,
+                    stealth=True,
+                )
+                if variant.get("packageName"):
+                    payload = rename_package(payload, variant["packageName"])
+                if variant.get("listenPort"):
+                    payload = set_listen_port(payload, variant["listenPort"])
+            else:
+                raise ValueError("unknown transform: %s" % transform)
+
+            name = variant["outputName"].format(version=effective_version)
+            path = os.path.join(out_dir, name)
+            with open(path, "wb") as f:
+                f.write(payload)
+
+            built.append(
+                {
+                    "variantId": variant["id"],
+                    "group": group_id,
+                    "name": name,
+                    "path": path,
+                    "size": len(payload),
                 "sha256": sha256_bytes(payload),
                 "version": effective_version,
                 "architecture": variant["architecture"],

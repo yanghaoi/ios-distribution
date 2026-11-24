@@ -1,37 +1,82 @@
 {
-  "upstream": {
-    "project": "frida/frida",
-    "version": "17.24.3",
-    "releaseUrl": "https://github.com/frida/frida/releases/tag/17.24.3",
-    "assets": {
-      "arm64": {
-        "name": "frida_17.24.3_iphoneos-arm64.deb",
-        "url": "https://github.com/frida/frida/releases/download/17.24.3/frida_17.24.3_iphoneos-arm64.deb",
-        "size": 23504004,
-        "sha256": "233a0133b027f41a24c7dddfa6e88bc49cf1f14a5066bc32c2523953f59d9e6d"
-      }
-    }
-  },
-  "variants": [
+  "versions": [
     {
-      "id": "roothide-arm64e",
-      "architecture": "iphoneos-arm64e",
-      "sourceArch": "arm64",
-      "transform": "roothide-full",
-      "versionSuffix": "+roothide1",
-      "preDepends": "rootless-compat (>= 0.9)",
-      "outputName": "re.frida.server_{version}_iphoneos-arm64e.deb",
-      "notes": "Paths flattened from /var/jb, architecture rewritten to iphoneos-arm64e, and a postinst added that applies roothide entitlements, re-signs with ldid, recreates the AutoPatches symlinks, and restarts the launchd job. Verified on device: sandboxed app spawn+hook works."
+      "id": "frida-17.24.3",
+      "upstream": {
+        "version": "17.24.3",
+        "releaseUrl": "https://github.com/frida/frida/releases/tag/17.24.3",
+        "assets": {
+          "arm64": {
+            "name": "frida_17.24.3_iphoneos-arm64.deb",
+            "url": "https://github.com/frida/frida/releases/download/17.24.3/frida_17.24.3_iphoneos-arm64.deb",
+            "size": 23504004,
+            "sha256": "233a0133b027f41a24c7dddfa6e88bc49cf1f14a5066bc32c2523953f59d9e6d"
+          }
+        }
+      },
+      "variants": [
+        {
+          "id": "roothide-arm64e",
+          "architecture": "iphoneos-arm64e",
+          "sourceArch": "arm64",
+          "transform": "roothide-full",
+          "versionSuffix": "+roothide1",
+          "preDepends": "rootless-compat (>= 0.9)",
+          "outputName": "re.frida.server_{version}_iphoneos-arm64e.deb",
+          "notes": "Paths flattened from /var/jb, architecture rewritten to iphoneos-arm64e, postinst applies roothide entitlements, re-signs with ldid, recreates AutoPatches symlinks, restarts launchd. Verified on device."
+        },
+        {
+          "id": "rootless-arm64",
+          "architecture": "iphoneos-arm64",
+          "sourceArch": "arm64",
+          "transform": "none",
+          "versionSuffix": "",
+          "preDepends": null,
+          "outputName": "re.frida.server_{version}_iphoneos-arm64.deb",
+          "notes": "Upstream package published unchanged; verifies the pipeline is byte-exact."
+        }
+      ]
     },
     {
-      "id": "rootless-arm64",
-      "architecture": "iphoneos-arm64",
-      "sourceArch": "arm64",
-      "transform": "none",
-      "versionSuffix": "",
-      "preDepends": null,
-      "outputName": "re.frida.server_{version}_iphoneos-arm64.deb",
-      "notes": "Upstream package published unchanged; verifies that the pipeline is byte-exact."
+      "id": "frida-16.5.7-stealth",
+      "upstream": {
+        "version": "16.5.7",
+        "releaseUrl": "https://github.com/frida/frida/releases/tag/16.5.7",
+        "assets": {
+          "arm64": {
+            "name": "frida_16.5.7_iphoneos-arm64.deb",
+            "url": "https://github.com/frida/frida/releases/download/16.5.7/frida_16.5.7_iphoneos-arm64.deb",
+            "size": 16595608,
+            "sha256": "2502000ac1b4bf6f5bec890dddcf801afc256bd8013ac0d1a2dfb27ac4457684"
+          }
+        }
+      },
+      "variants": [
+        {
+          "id": "stealth-arm64e",
+          "architecture": "iphoneos-arm64e",
+          "sourceArch": "arm64",
+          "transform": "roothide-stealth",
+          "versionSuffix": "+stealth1",
+          "preDepends": "rootless-compat (>= 0.9)",
+          "packageName": "re.frida.stealth",
+          "listenPort": 27043,
+          "outputName": "re.frida.stealth_{version}_iphoneos-arm64e.deb",
+          "notes": "16.5.7 rebuilt for the re.frnda stealth protocol (D-Bus interface rename re.frida.* -> re.frnda.*, plus frida:rpc -> frnda:rpc). Installs as re.frida.stealth on port 27043 so it coexists with re.frida.server. Verified on device with the 16.5.7-stealth Python client: RPC and Interceptor hook both work."
+        },
+        {
+          "id": "stealth-arm64",
+          "architecture": "iphoneos-arm64",
+          "sourceArch": "arm64",
+          "transform": "stealth-plain",
+          "versionSuffix": "+stealth1",
+          "preDepends": null,
+          "packageName": "re.frida.stealth",
+          "listenPort": 27043,
+          "outputName": "re.frida.stealth_{version}_iphoneos-arm64.deb",
+          "notes": "Same stealth protocol patch on the standard rootless layout, for non-roothide devices."
+        }
+      ]
     }
   ]
 }
