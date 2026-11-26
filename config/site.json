@@ -2,15 +2,15 @@
   "owner": "yanghaoi",
   "repository": "ios-distribution",
   "branch": "main",
-  "siteName": "yanghaoi iOS Repository",
-  "siteSubtitle": "Jailbreak packages and TrollStore apps, built from pinned upstream assets",
+  "siteName": "YhRepo",
+  "siteSubtitle": "自建 iOS 插件源：固定上游版本、签名索引、GitHub Pages 托管",
   "baseUrl": "https://yanghaoi.github.io/ios-distribution/",
   "apt": {
     "distribution": "stable",
     "component": "main",
-    "origin": "yanghaoi iOS Repository",
-    "label": "yanghaoi iOS Repository",
-    "description": "iOS packages mirrored and adapted from pinned upstream releases"
+    "origin": "YhRepo",
+    "label": "YhRepo",
+    "description": "自建 iOS 越狱插件源，包体来自固定版本的上游开源 Release，索引使用 GPG 签名。"
   },
   "channels": {
     "apt": true,

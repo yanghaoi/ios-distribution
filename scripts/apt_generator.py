@@ -76,7 +76,8 @@ def parse_stanza(text):
         if not line.strip():
             continue
         if line[0] in " \t" and fields:
-            fields[-1] = fields[-1] + "\n" + line
+            key, value = fields[-1]
+            fields[-1] = (key, value + "\n" + line)
             continue
         if ":" not in line:
             raise ValueError("malformed control line: %r" % line)
@@ -251,7 +252,9 @@ def render_release(apt_dir, dist, component, site_cfg):
         full = os.path.join(base, name)
         if not os.path.isfile(full):
             continue
-        if name in ("Release", "Release.gpg", "InRelease", "public.gpg"):
+        # CydiaIcon.png is copied in after the index is built, so it must not
+        # appear in the Release hash list or the signature check would fail.
+        if name in ("Release", "Release.gpg", "InRelease", "public.gpg", "CydiaIcon.png"):
             continue
         rel = name
         entries.append((rel, os.path.getsize(full)))

@@ -136,3 +136,29 @@ class ReleaseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class MultilineStanzaTests(unittest.TestCase):
+    def test_multiline_description_roundtrip(self):
+        text = (
+            "Package: x\n"
+            "Version: 1\n"
+            "Description: 第一行\n"
+            " .\n"
+            " 第二行\n"
+            " 第三行\n"
+        )
+        fields = apt_generator.parse_stanza(text)
+        desc = dict(fields)["Description"]
+        self.assertIn("第一行", desc)
+        self.assertIn("第二行", desc)
+        self.assertIn("第三行", desc)
+
+    def test_multiline_survives_rebuild(self):
+        text = "Package: x\nDescription: 中文\n 续行\n"
+        fields = apt_generator.parse_stanza(text)
+        stanza = apt_generator.build_packages_stanza(
+            text, "pool/main/x/x.deb", 1, "a" * 64, "b" * 32, "c" * 40
+        )
+        reparsed = dict(apt_generator.parse_stanza(stanza))
+        self.assertEqual(reparsed["Package"], "x")
+        self.assertIn("续行", reparsed["Description"])

@@ -136,6 +136,13 @@ def build(repo_root, dist_dir, debs_dir, sign_key=None, sign_passphrase=None,
         src = os.path.join(web, item)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(site_root, item))
+
+    # Sileo and Zebra read the repo icon from <repo root>/CydiaIcon.png
+    # relative to the source URL the user added, i.e. inside apt/.
+    icon_src = os.path.join(web, "assets", "CydiaIcon.png")
+    if os.path.isfile(icon_src):
+        os.makedirs(apt_dir, exist_ok=True)
+        shutil.copyfile(icon_src, os.path.join(apt_dir, "CydiaIcon.png"))
     _render_index(
         os.path.join(web, "index.html"),
         os.path.join(site_root, "index.html"),

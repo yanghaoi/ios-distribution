@@ -103,7 +103,23 @@ def control_get(fields, key):
     return None
 
 
+def normalize_multiline(value):
+    """Debian control continuation lines must start with a single space."""
+    lines = value.splitlines()
+    if not lines:
+        return value
+    out = [lines[0]]
+    for line in lines[1:]:
+        if not line.strip():
+            out.append(" .")
+        else:
+            out.append(" " + line.lstrip())
+    return "\n".join(out)
+
+
 def control_set(fields, key, value):
+    if "\n" in value:
+        value = normalize_multiline(value)
     out = []
     replaced = False
     for item in fields:
@@ -334,7 +350,7 @@ ROOTHIDE_POSTINST = make_postinst()
 
 
 def transform_control(raw, version, arch, pre_depends, inject_postinst=False,
-                      postinst_body=None):
+                      postinst_body=None, overrides=None):
     control_body = None
     for member, body in iter_tar(raw):
         if member.name.lstrip("./") == "control":
@@ -351,6 +367,9 @@ def transform_control(raw, version, arch, pre_depends, inject_postinst=False,
     fields = control_del(fields, "Pre-Depends")
     if pre_depends:
         fields = control_set(fields, "Pre-Depends", pre_depends)
+    for key, value in (overrides or {}).items():
+        if value:
+            fields = control_set(fields, key, value)
     new_control = render_control(fields)
 
     entries = []
@@ -441,14 +460,14 @@ def transform_data_stealth(raw, flatten):
 
 
 def repack_deb(source_bytes, version, arch, pre_depends, flatten, inject_postinst=False,
-               stealth=False, postinst_body=None, compress_preset=6):
+               stealth=False, postinst_body=None, overrides=None, compress_preset=6):
     members = read_ar(source_bytes)
     control_name, control_raw = read_control(members)
     data_name, data_raw = read_data(members)
 
     new_control = transform_control(
         control_raw, version, arch, pre_depends, inject_postinst=inject_postinst,
-        postinst_body=postinst_body,
+        postinst_body=postinst_body, overrides=overrides,
     )
     if stealth:
         new_data = transform_data_stealth(data_raw, flatten)
@@ -699,8 +718,26 @@ def build_variants(repo_root, cache_dir, out_dir):
             src = sources[variant["sourceArch"]]
             transform = variant["transform"]
             effective_version = version + variant["versionSuffix"]
+            overrides = {
+                "Description": variant.get("description"),
+                "Maintainer": variant.get("maintainer"),
+                "Section": variant.get("section"),
+                "Homepage": variant.get("homepage"),
+            }
             if transform == "none":
-                payload = src
+                if any(v for v in overrides.values()):
+                    # still byte-exact in payload, only the control text changes
+                    payload = repack_deb(
+                        src,
+                        version=effective_version,
+                        arch=variant["architecture"],
+                        pre_depends=variant["preDepends"],
+                        flatten=False,
+                        inject_postinst=False,
+                        overrides=overrides,
+                    )
+                else:
+                    payload = src
             elif transform == "roothide":
                 payload = repack_deb(
                     src,
@@ -709,6 +746,7 @@ def build_variants(repo_root, cache_dir, out_dir):
                     pre_depends=variant["preDepends"],
                     flatten=True,
                     inject_postinst=variant.get("injectRoothidePostinst", False),
+                    overrides=overrides,
                 )
             elif transform == "roothide-full":
                 payload = repack_deb(
@@ -718,6 +756,7 @@ def build_variants(repo_root, cache_dir, out_dir):
                     pre_depends=variant["preDepends"],
                     flatten=True,
                     inject_postinst=True,
+                    overrides=overrides,
                 )
             elif transform == "roothide-stealth":
                 payload = repack_deb(
@@ -739,6 +778,7 @@ def build_variants(repo_root, cache_dir, out_dir):
                             "127.0.0.1:%d" % variant.get("listenPort", 27043),
                         ],
                     ),
+                    overrides=overrides,
                 )
                 payload = relocate_stealth_files(payload)
                 if variant.get("packageName"):
@@ -754,6 +794,7 @@ def build_variants(repo_root, cache_dir, out_dir):
                     flatten=False,
                     inject_postinst=False,
                     stealth=True,
+                    overrides=overrides,
                 )
                 if variant.get("packageName"):
                     payload = rename_package(payload, variant["packageName"])

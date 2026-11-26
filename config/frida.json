@@ -23,7 +23,12 @@
           "versionSuffix": "+roothide1",
           "preDepends": "rootless-compat (>= 0.9)",
           "outputName": "re.frida.server_{version}_iphoneos-arm64e.deb",
-          "notes": "Paths flattened from /var/jb, architecture rewritten to iphoneos-arm64e, postinst applies roothide entitlements, re-signs with ldid, recreates AutoPatches symlinks, restarts launchd. Verified on device."
+          "notes": "Paths flattened from /var/jb, architecture rewritten to iphoneos-arm64e, postinst applies roothide entitlements, re-signs with ldid, recreates AutoPatches symlinks, restarts launchd. Verified on device.",
+          "description": "Frida 动态插桩工具的服务端，针对 roothide 越狱重新打包。\n\n安装后由 launchd 常驻运行，默认监听 127.0.0.1:27042。\n\n与上游版本的区别：\n- 包体架构标记改写为 iphoneos-arm64e，roothide 环境可直接安装\n- 安装时自动应用 roothide 权限、重新签名、重建 AutoPatches 链接\n- 预置依赖 rootless-compat\n\n启动参数（监听地址、token、origin）可在设备上用 frida_ctl.py 修改，\n无需重装。参数保存在 /var/mobile/Library/frida-config/ 下。",
+          "maintainer": "YhRepo Package Maintainer",
+          "section": "Development",
+          "homepage": "https://frida.re/",
+          "changelog": "17.24.3+roothide1：首个版本。基于 frida 17.24.3 上游包，改写为 iphoneos-arm64e 架构并扁平化路径，安装时自动完成 roothide 权限与签名处理。实机验证 spawn 注入与 Interceptor hook 正常。"
         },
         {
           "id": "rootless-arm64",
@@ -33,7 +38,12 @@
           "versionSuffix": "",
           "preDepends": null,
           "outputName": "re.frida.server_{version}_iphoneos-arm64.deb",
-          "notes": "Upstream package published unchanged; verifies the pipeline is byte-exact."
+          "notes": "Upstream package published unchanged; verifies the pipeline is byte-exact.",
+          "description": "Frida 动态插桩工具的服务端，标准 rootless 布局。\n\n安装后由 launchd 常驻运行，默认监听 127.0.0.1:27042。\n\n本包与上游 frida 官方 Release 字节一致，未做任何改动，\n适用于标准 Dopamine rootless 越狱环境。\n\n启动参数可在设备上修改，无需重装。",
+          "maintainer": "YhRepo Package Maintainer",
+          "section": "Development",
+          "homepage": "https://frida.re/",
+          "changelog": "17.24.3：首个版本。与上游 frida 官方 Release 字节一致，未做改动。"
         }
       ]
     },
@@ -62,7 +72,12 @@
           "packageName": "re.frida.stealth",
           "listenPort": 27043,
           "outputName": "re.frida.stealth_{version}_iphoneos-arm64e.deb",
-          "notes": "16.5.7 rebuilt for the re.frnda stealth protocol (D-Bus interface rename re.frida.* -> re.frnda.*, plus frida:rpc -> frnda:rpc). Installs as re.frida.stealth on port 27043 so it coexists with re.frida.server. Verified on device with the 16.5.7-stealth Python client: RPC and Interceptor hook both work."
+          "notes": "16.5.7 rebuilt for the re.frnda stealth protocol (D-Bus interface rename re.frida.* -> re.frnda.*, plus frida:rpc -> frnda:rpc). Installs as re.frida.stealth on port 27043 so it coexists with re.frida.server. Verified on device with the 16.5.7-stealth Python client: RPC and Interceptor hook both work.",
+          "description": "Frida 动态插桩工具的服务端，16.5.7 定制版，配合改过特征的客户端使用。\n\n安装后由 launchd 常驻运行，默认监听 127.0.0.1:27043，与标准版可共存。\n\n与标准版的区别：\n- 内部通信接口名由 re.frida.* 改为 re.frnda.*，需配套客户端\n- 服务端与 agent 同步改名，避免被按标准接口名识别\n- 包名独立为 re.frida.stealth，可与 re.frida.server 同时安装\n\n注意：必须使用 16.5.7-stealth 版客户端连接，原版客户端会报协议不匹配。\n\n启动参数可在设备上用 frida_ctl.py 修改，无需重装。",
+          "maintainer": "YhRepo Package Maintainer",
+          "section": "Development",
+          "homepage": "https://frida.re/",
+          "changelog": "16.5.7+stealth1：首个版本。基于 frida 16.5.7 上游包，将 re.frida.* 接口名替换为 re.frnda.*，包名改为 re.frida.stealth，独立监听 27043 端口，可与标准版共存。实机验证配套客户端可正常 spawn、RPC 与 hook。"
         },
         {
           "id": "stealth-arm64",
@@ -74,7 +89,12 @@
           "packageName": "re.frida.stealth",
           "listenPort": 27043,
           "outputName": "re.frida.stealth_{version}_iphoneos-arm64.deb",
-          "notes": "Same stealth protocol patch on the standard rootless layout, for non-roothide devices."
+          "notes": "Same stealth protocol patch on the standard rootless layout, for non-roothide devices.",
+          "description": "Frida 动态插桩工具的服务端，16.5.7 定制版，配合改过特征的客户端使用。\n\n安装后由 launchd 常驻运行，默认监听 127.0.0.1:27043，与标准版可共存。\n\n与标准版的区别：\n- 内部通信接口名由 re.frida.* 改为 re.frnda.*，需配套客户端\n- 服务端与 agent 同步改名，避免被按标准接口名识别\n- 包名独立为 re.frida.stealth，可与 re.frida.server 同时安装\n\n注意：必须使用 16.5.7-stealth 版客户端连接，原版客户端会报协议不匹配。\n\n启动参数可在设备上用 frida_ctl.py 修改，无需重装。",
+          "maintainer": "YhRepo Package Maintainer",
+          "section": "Development",
+          "homepage": "https://frida.re/",
+          "changelog": "16.5.7+stealth1：首个版本。与 arm64e 变体相同的接口改名处理，采用标准 rootless 布局。"
         }
       ]
     }
