@@ -68,9 +68,7 @@ class ReleaseTests(unittest.TestCase):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            base = os.path.join(tmp, "dists", "stable", "main", "binary-iphoneos-arm64e")
-            os.makedirs(base)
-            with open(os.path.join(base, "Packages"), "wb") as f:
+            with open(os.path.join(tmp, "Packages-iphoneos-arm64e"), "wb") as f:
                 f.write(b"Package: x\n")
             cfg = {
                 "apt": {
@@ -81,18 +79,14 @@ class ReleaseTests(unittest.TestCase):
             }
             text = apt_generator.render_release(tmp, "stable", "main", cfg)
             self.assertIn("Architectures: iphoneos-arm64e", text)
-            self.assertIn("main/binary-iphoneos-arm64e/Packages", text)
-            self.assertNotIn("Architectures: iphoneos-arm64 \n", text)
+            self.assertIn("Packages-iphoneos-arm64e", text)
 
     def test_release_hashes_match_files(self):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            base = os.path.join(tmp, "dists", "stable", "main", "binary-iphoneos-arm64")
-            os.makedirs(base)
             payload = b"Package: x\nVersion: 1\n"
-            target = os.path.join(base, "Packages")
-            with open(target, "wb") as f:
+            with open(os.path.join(tmp, "Packages-iphoneos-arm64"), "wb") as f:
                 f.write(payload)
 
             cfg = {"apt": {"origin": "O", "label": "L", "description": "D"}}
@@ -100,8 +94,44 @@ class ReleaseTests(unittest.TestCase):
 
             expected = hashlib.sha256(payload).hexdigest()
             self.assertIn(expected, text)
-            size = str(len(payload))
-            self.assertIn(size, text)
+            self.assertIn(str(len(payload)), text)
+
+    def test_release_is_at_repo_root(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "Packages-all"), "wb") as f:
+                f.write(b"Package: x\n")
+            cfg = {"apt": {"origin": "O", "label": "L", "description": "D"}}
+            text = apt_generator.render_release(tmp, "stable", "main", cfg)
+            self.assertNotIn("dists/", text)
+            self.assertNotIn("binary-", text)
+
+    def test_release_architectures_not_duplicated_by_compressed_variants(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (
+                "Packages-iphoneos-arm64",
+                "Packages-iphoneos-arm64.gz",
+                "Packages-iphoneos-arm64.bz2",
+            ):
+                with open(os.path.join(tmp, name), "wb") as f:
+                    f.write(b"Package: x\n")
+            cfg = {"apt": {"origin": "O", "label": "L", "description": "D"}}
+            text = apt_generator.render_release(tmp, "stable", "main", cfg)
+            line = [l for l in text.splitlines() if l.startswith("Architectures:")][0]
+            self.assertEqual(line, "Architectures: iphoneos-arm64")
+
+    def test_union_packages_is_listed_in_release(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "Packages"), "wb") as f:
+                f.write(b"Package: x\n")
+            cfg = {"apt": {"origin": "O", "label": "L", "description": "D"}}
+            text = apt_generator.render_release(tmp, "stable", "main", cfg)
+            self.assertIn(" Packages\n", text)
 
 
 if __name__ == "__main__":

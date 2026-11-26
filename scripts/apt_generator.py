@@ -204,21 +204,34 @@ def build_apt_tree(apt_dir, debs, site_cfg):
     for arch, entries in index_targets.items():
         entries.sort(key=lambda e: (e[0], e[1]))
         body = "\n\n".join(e[2] for e in entries) + "\n"
-        binary_dir = os.path.join(
-            apt_dir, "dists", dist, component, "binary-%s" % arch
-        )
-        os.makedirs(binary_dir, exist_ok=True)
-        plain = os.path.join(binary_dir, "Packages")
-        with open(plain, "wb") as f:
-            f.write(body.encode("utf-8"))
-        with open(plain + ".gz", "wb") as f:
-            f.write(gzip.compress(body.encode("utf-8"), compresslevel=9, mtime=0))
-        with open(plain + ".bz2", "wb") as f:
-            f.write(bz2.compress(body.encode("utf-8"), compresslevel=9))
+        # Flat repo layout (like repo.chariz.com / havoc.app): Packages sits
+        # next to Release at the repo root, so a client that only knows the
+        # base URL finds it. Kept per-architecture as Packages-<arch> and the
+        # union as plain Packages for clients that expect a single index.
+        for name in ("Packages-%s" % arch,):
+            plain = os.path.join(apt_dir, name)
+            with open(plain, "wb") as f:
+                f.write(body.encode("utf-8"))
+            with open(plain + ".gz", "wb") as f:
+                f.write(gzip.compress(body.encode("utf-8"), compresslevel=9, mtime=0))
+            with open(plain + ".bz2", "wb") as f:
+                f.write(bz2.compress(body.encode("utf-8"), compresslevel=9))
 
-    release_path = os.path.join(apt_dir, "dists", dist, "Release")
+    all_entries = []
+    for arch in sorted(index_targets):
+        all_entries.extend(index_targets[arch])
+    all_entries.sort(key=lambda e: (e[0], e[1]))
+    union_body = "\n\n".join(e[2] for e in all_entries) + "\n"
+    union_plain = os.path.join(apt_dir, "Packages")
+    with open(union_plain, "wb") as f:
+        f.write(union_body.encode("utf-8"))
+    with open(union_plain + ".gz", "wb") as f:
+        f.write(gzip.compress(union_body.encode("utf-8"), compresslevel=9, mtime=0))
+    with open(union_plain + ".bz2", "wb") as f:
+        f.write(bz2.compress(union_body.encode("utf-8"), compresslevel=9))
+
+    release_path = os.path.join(apt_dir, "Release")
     release_text = render_release(apt_dir, dist, component, site_cfg)
-    os.makedirs(os.path.dirname(release_path), exist_ok=True)
     with open(release_path, "wb") as f:
         f.write(release_text.encode("utf-8"))
 
@@ -233,21 +246,23 @@ def build_apt_tree(apt_dir, debs, site_cfg):
 def render_release(apt_dir, dist, component, site_cfg):
     apt = site_cfg["apt"]
     entries = []
-    base = os.path.join(apt_dir, "dists", dist)
-    for root, _dirs, files in os.walk(base):
-        for name in sorted(files):
-            if name in ("Release", "Release.gpg", "InRelease"):
-                continue
-            full = os.path.join(root, name)
-            rel = os.path.relpath(full, base).replace(os.sep, "/")
-            entries.append((rel, os.path.getsize(full)))
+    base = apt_dir
+    for name in sorted(os.listdir(base)):
+        full = os.path.join(base, name)
+        if not os.path.isfile(full):
+            continue
+        if name in ("Release", "Release.gpg", "InRelease", "public.gpg"):
+            continue
+        rel = name
+        entries.append((rel, os.path.getsize(full)))
     entries.sort(key=lambda e: e[0])
 
     arches = sorted(
         set(
-            re.match(r"^%s/binary-(.+?)/Packages" % re.escape(component), rel).group(1)
+            m.group(1)
             for rel, _ in entries
-            if re.match(r"^%s/binary-(.+?)/Packages" % re.escape(component), rel)
+            if (m := re.match(r"^Packages-(.+?)(?:\.gz|\.bz2)?$", rel))
+            and not rel.endswith((".gz", ".bz2"))
         )
     )
 

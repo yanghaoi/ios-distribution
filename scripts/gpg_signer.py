@@ -75,7 +75,7 @@ def sign_apt_release(apt_dir, dist, key_armored, passphrase=None):
         if passphrase:
             sign_args += ["--pinentry-mode", "loopback", "--passphrase", passphrase]
 
-        base = os.path.join(apt_dir, "dists", dist)
+        base = apt_dir
         release_path = os.path.join(base, "Release")
         release_bytes = open(release_path, "rb").read()
 
@@ -111,7 +111,7 @@ def verify_apt_release(apt_dir, dist):
         os.chmod(home, 0o700)
         public = os.path.join(apt_dir, "public.gpg")
         _run([gpg, "--batch", "--quiet", "--import", public], env)
-        base = os.path.join(apt_dir, "dists", dist)
+        base = apt_dir
         _run([gpg, "--batch", "--verify", os.path.join(base, "InRelease")], env)
         _run(
             [gpg, "--batch", "--verify", os.path.join(base, "Release.gpg"), os.path.join(base, "Release")],
